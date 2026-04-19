@@ -33,9 +33,17 @@ def _normalize_payload(envelope, payload, max_depth=2):
         merged["classifications"] = merged.get("classifications") or classifications_map.get(merged.get("fqn"), [])
         impacted.append(merged)
 
-    # Prefer the envelope's failed_test when OM didn't return one — lets the webhook
-    # payload carry the failure signal straight through to RCA inference.
-    failed_test = payload.get("failed_test") or envelope.get("failed_test") or {}
+    # Failed-test precedence: concrete webhook data beats synthetic OM placeholders.
+    # OM's HTTP client emits a placeholder `{testType: "unknown"}` when it can't
+    # resolve the test_case_id (ad-hoc / demo events). Envelope data from the raw
+    # webhook is always more authoritative for `message` and `testType` when present.
+    om_failed = payload.get("failed_test") or {}
+    env_failed = envelope.get("failed_test") or {}
+    failed_test = dict(om_failed)
+    if env_failed.get("message"):
+        failed_test["message"] = env_failed["message"]
+    if env_failed.get("testType"):
+        failed_test["testType"] = env_failed["testType"]
 
     return {
         "incident_id": envelope["incident_id"],
