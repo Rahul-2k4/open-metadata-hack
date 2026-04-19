@@ -1,31 +1,65 @@
 """FastAPI application wiring the live incident copilot service.
 
 Endpoints:
-  POST /webhooks/incidents   — receive OpenMetadata alert payloads, run pipeline, persist, deliver.
-  GET  /incidents            — list recent incidents.
-  GET  /incidents/{id}       — fetch one incident's full brief.
-  GET  /incidents/{id}/view  — rendered HTML brief.
-  GET  /health               — liveness + connected-integrations snapshot.
-  GET  /metrics              — lightweight counters for ops.
+  POST /webhooks/incidents      — receive OpenMetadata alert payloads, run pipeline, persist, deliver.
+  GET  /incidents               — list recent incidents.
+  GET  /incidents/{id}          — fetch one incident's full brief.
+  GET  /incidents/{id}/view     — rendered HTML brief.
+  GET  /health                  — liveness + connected-integrations snapshot.
+  GET  /metrics                 — lightweight counters for ops.
+  GET  /admin/retry-queue       — inspect pending Slack retries.
+  POST /admin/retry-now         — force an immediate retry sweep.
 """
+import asyncio
+import logging
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
+from incident_copilot.background_retry import retry_pending_deliveries
 from incident_copilot.brief_renderer import render_brief_html
 from incident_copilot.config import AppConfig, load_config
+from incident_copilot.delivery_queue import DeliveryQueue
 from incident_copilot.orchestrator import run_pipeline
 from incident_copilot.slack_sender import build_slack_sender
 from incident_copilot.store import IncidentStore
 from incident_copilot.webhook_parser import parse_om_alert_payload
 
 
-def create_app(config: AppConfig | None = None) -> FastAPI:
+log = logging.getLogger("incident_copilot")
+
+
+def create_app(config: AppConfig | None = None, retry_interval_seconds: float = 30.0) -> FastAPI:
     cfg = config or load_config()
     store = IncidentStore(cfg.db_path)
+    queue = DeliveryQueue(cfg.db_path)
 
-    app = FastAPI(title="OpenMetadata Incident Copilot", version="0.3.0")
+    async def _retry_loop():
+        while True:
+            try:
+                sender = build_slack_sender()
+                retry_pending_deliveries(store=store, queue=queue, slack_sender=sender)
+            except Exception as exc:  # pragma: no cover — defensive
+                log.warning("retry loop error: %s", exc)
+            await asyncio.sleep(retry_interval_seconds)
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        task = None
+        if cfg.has_slack and retry_interval_seconds > 0:
+            task = asyncio.create_task(_retry_loop())
+        try:
+            yield
+        finally:
+            if task:
+                task.cancel()
+
+    app = FastAPI(title="OpenMetadata Incident Copilot", version="0.4.0", lifespan=lifespan)
     app.state.config = cfg
     app.state.store = store
+    app.state.queue = queue
+    app.state.retry_interval = retry_interval_seconds
 
     @app.get("/health")
     def health():
@@ -35,11 +69,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "has_slack": cfg.has_slack,
             "has_ai": cfg.has_ai,
             "db_path": cfg.db_path,
+            "retry_interval_seconds": retry_interval_seconds,
         }
 
     @app.get("/metrics")
     def metrics():
-        return {"incident_count": store.count()}
+        return {
+            "incident_count": store.count(),
+            "pending_retries": len(queue.pending(limit=1000)),
+        }
 
     @app.post("/webhooks/incidents")
     async def ingest_incident(request: Request):
@@ -57,14 +95,20 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=500, detail=f"pipeline failure: {exc}") from exc
 
         delivery = result["delivery"]["delivery"]
+        incident_id = result["brief"]["incident_id"]
+
         store.save_brief(
             brief=result["brief"],
             delivery_status=delivery.slack_status if delivery.primary_output == "slack" else delivery.local_status,
             primary_output=delivery.primary_output,
         )
 
+        # Enqueue retry when Slack was configured and failed
+        if cfg.has_slack and delivery.primary_output == "local_mirror":
+            queue.enqueue(incident_id, reason="SLACK_SEND_FAILED")
+
         return {
-            "incident_id": result["brief"]["incident_id"],
+            "incident_id": incident_id,
             "brief": result["brief"],
             "delivery": {
                 "primary_output": delivery.primary_output,
@@ -94,6 +138,17 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail=f"incident {incident_id} not found")
         return HTMLResponse(render_brief_html(row["brief"]))
 
+    @app.get("/admin/retry-queue")
+    def retry_queue_snapshot():
+        return {"pending": queue.pending(limit=1000)}
+
+    @app.post("/admin/retry-now")
+    def retry_now():
+        sender = build_slack_sender()
+        if sender is None:
+            return JSONResponse({"retried": 0, "error": "SLACK_WEBHOOK_URL not configured"}, status_code=400)
+        return retry_pending_deliveries(store=store, queue=queue, slack_sender=sender)
+
     @app.get("/")
     def root():
         return JSONResponse({
@@ -105,6 +160,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 "GET  /incidents/{id}/view",
                 "GET  /health",
                 "GET  /metrics",
+                "GET  /admin/retry-queue",
+                "POST /admin/retry-now",
             ],
         })
 
