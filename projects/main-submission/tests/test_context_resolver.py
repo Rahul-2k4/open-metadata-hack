@@ -17,15 +17,26 @@ def test_envelope_failed_test_used_when_payload_empty():
     assert out["failed_test"]["message"] == "from webhook envelope"
 
 
-def test_payload_failed_test_wins_over_envelope():
+def test_envelope_message_wins_over_om_placeholder():
+    """When both envelope and OM have a message, envelope (webhook) wins
+    because OM's placeholder is often synthetic when the test_case_id is unknown.
+    """
     env = {
         "incident_id": "inc-e",
         "entity_fqn": "svc.db.s.t",
-        "failed_test": {"message": "from envelope"},
+        "failed_test": {"message": "null ratio exceeded 15%", "testType": "columnValueNullRatioExceeded"},
     }
-    fake_client = {"failed_test": {"message": "from om"}, "lineage": [], "owners": {"asset_owner": "o"}, "classifications": {}}
+    fake_client = {
+        "failed_test": {"message": "OpenMetadata test case reported a failure.", "testType": "unknown", "name": "tc-x"},
+        "lineage": [],
+        "owners": {"asset_owner": "o"},
+        "classifications": {},
+    }
     out = resolve_context(env, fake_client, max_depth=2)
-    assert out["failed_test"]["message"] == "from om"
+    assert out["failed_test"]["message"] == "null ratio exceeded 15%"
+    assert out["failed_test"]["testType"] == "columnValueNullRatioExceeded"
+    # But OM-only fields (like `name`) are preserved
+    assert out["failed_test"]["name"] == "tc-x"
 
 
 def test_resolver_returns_required_context_sections():
