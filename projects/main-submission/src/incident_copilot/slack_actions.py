@@ -10,6 +10,7 @@ import hmac
 import json
 import os
 import time
+from urllib import error, request
 from urllib.parse import parse_qs
 
 
@@ -58,11 +59,14 @@ def parse_action_payload(raw_body: bytes) -> dict:
         raise SlackActionError(f"unknown action_id: {action_id!r}")
 
     user = payload.get("user") or {}
+    channel = payload.get("channel") or {}
     return {
         "action": action_id,
         "incident_id": action.get("value") or "",
         "user_id": user.get("id") or "",
         "user_name": user.get("name") or "",
+        "channel_id": channel.get("id") or "",
+        "response_url": payload.get("response_url") or "",
     }
 
 
@@ -90,6 +94,48 @@ _USER_VISIBLE = {
     "approve": ":white_check_mark: Approved",
     "deny": ":no_entry: Denied",
 }
+
+
+def post_ephemeral_via_bot(
+    channel_id: str,
+    user_id: str,
+    text: str,
+    bot_token: str | None = None,
+    opener=None,
+) -> bool:
+    """Call chat.postEphemeral — shows a user-only message in the channel.
+
+    Requires `SLACK_BOT_TOKEN` (xoxb-...). Returns True on success, False on any
+    failure (including missing token). Safe to call unconditionally.
+    """
+    token = bot_token or os.environ.get("SLACK_BOT_TOKEN")
+    if not (token and channel_id and user_id):
+        return False
+
+    body = json.dumps({
+        "channel": channel_id,
+        "user": user_id,
+        "text": text,
+    }).encode("utf-8")
+
+    req = request.Request(
+        "https://slack.com/api/chat.postEphemeral",
+        data=body,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json; charset=utf-8",
+        },
+        method="POST",
+    )
+    opener_fn = opener or request.urlopen
+    try:
+        with opener_fn(req, timeout=3.0) as resp:
+            data = json.loads(resp.read().decode("utf-8", errors="replace"))
+            return bool(data.get("ok"))
+    except error.URLError:
+        return False
+    except Exception:
+        return False
 
 
 def render_slack_response(action: str, user_name: str, incident_id: str) -> dict:
