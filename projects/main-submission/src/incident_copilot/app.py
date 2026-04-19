@@ -20,6 +20,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from incident_copilot.background_retry import retry_pending_deliveries
 from incident_copilot.brief_renderer import render_brief_html
 from incident_copilot.config import AppConfig, load_config
+from incident_copilot.dashboard_renderer import render_dashboard_html
 from incident_copilot.delivery_queue import DeliveryQueue
 from incident_copilot.om_poller import poll_once
 from incident_copilot.orchestrator import run_pipeline
@@ -182,8 +183,19 @@ def create_app(config: AppConfig | None = None, retry_interval_seconds: float = 
             return JSONResponse({"retried": 0, "error": "SLACK_WEBHOOK_URL not configured"}, status_code=400)
         return retry_pending_deliveries(store=store, queue=queue, slack_sender=sender)
 
-    @app.get("/")
-    def root():
+    @app.get("/", response_class=HTMLResponse)
+    def dashboard():
+        rows = store.list_recent(limit=50)
+        return HTMLResponse(render_dashboard_html(
+            rows=rows,
+            total=store.count(),
+            has_openmetadata=cfg.has_openmetadata,
+            has_slack=cfg.has_slack,
+            has_ai=cfg.has_ai,
+        ))
+
+    @app.get("/api")
+    def api_root():
         return JSONResponse({
             "service": "openmetadata-incident-copilot",
             "endpoints": [
@@ -195,6 +207,7 @@ def create_app(config: AppConfig | None = None, retry_interval_seconds: float = 
                 "GET  /metrics",
                 "GET  /admin/retry-queue",
                 "POST /admin/retry-now",
+                "GET  /                    — HTML dashboard",
             ],
         })
 
