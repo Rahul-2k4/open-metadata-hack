@@ -160,6 +160,46 @@ def test_missing_secret_returns_503(tmp_path, monkeypatch):
     assert r.status_code == 503
 
 
+def test_post_ephemeral_via_bot_returns_false_without_token(monkeypatch):
+    from incident_copilot.slack_actions import post_ephemeral_via_bot
+    monkeypatch.delenv("SLACK_BOT_TOKEN", raising=False)
+    assert post_ephemeral_via_bot("C123", "U123", "hi") is False
+
+
+def test_post_ephemeral_via_bot_returns_false_without_channel(monkeypatch):
+    from incident_copilot.slack_actions import post_ephemeral_via_bot
+    monkeypatch.setenv("SLACK_BOT_TOKEN", "xoxb-test")
+    assert post_ephemeral_via_bot("", "U123", "hi") is False
+
+
+def test_post_ephemeral_via_bot_posts_when_configured(monkeypatch):
+    from incident_copilot.slack_actions import post_ephemeral_via_bot
+
+    captured = {}
+
+    class FakeResp:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return b'{"ok": true}'
+
+    def fake_urlopen(req, timeout=None):
+        captured["url"] = req.full_url
+        captured["headers"] = {k.lower(): v for k, v in req.header_items()}
+        captured["body"] = req.data.decode("utf-8")
+        return FakeResp()
+
+    monkeypatch.setenv("SLACK_BOT_TOKEN", "xoxb-real")
+    ok = post_ephemeral_via_bot("C123", "U456", "hi there", opener=fake_urlopen)
+    assert ok is True
+    assert captured["url"] == "https://slack.com/api/chat.postEphemeral"
+    assert captured["headers"]["authorization"] == "Bearer xoxb-real"
+    import json as _json
+    body = _json.loads(captured["body"])
+    assert body["channel"] == "C123"
+    assert body["user"] == "U456"
+    assert body["text"] == "hi there"
+
+
 def test_unknown_incident_returns_404(client):
     body = _action_body("does-not-exist", "ack")
     ts = str(int(time.time()))

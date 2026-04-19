@@ -29,6 +29,7 @@ from incident_copilot.slack_actions import (
     SlackActionError,
     apply_action,
     parse_action_payload,
+    post_ephemeral_via_bot,
     render_slack_response,
     verify_slack_signature,
 )
@@ -201,6 +202,15 @@ def create_app(config: AppConfig | None = None, retry_interval_seconds: float = 
             apply_action(store, parsed["incident_id"], parsed["action"], parsed["user_name"])
         except SlackActionError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+        action_label = {"ack": "Acknowledged", "approve": "Approved", "deny": "Denied"}.get(
+            parsed["action"], parsed["action"].title()
+        )
+        post_ephemeral_via_bot(
+            channel_id=parsed.get("channel_id", ""),
+            user_id=parsed.get("user_id", ""),
+            text=f":white_check_mark: {action_label} incident `{parsed['incident_id']}` — recorded by copilot.",
+        )
 
         return render_slack_response(parsed["action"], parsed["user_name"], parsed["incident_id"])
 
