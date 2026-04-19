@@ -80,3 +80,16 @@ def test_send_slack_payload_returns_false_on_transport_error(monkeypatch):
     monkeypatch.setenv("SLACK_WEBHOOK_URL", "https://hooks.slack.test/services/T000/B000/TEST")
 
     assert send_slack_payload({"channel": "slack", "brief": {"incident_id": "inc-8"}}, opener=fake_urlopen) is False
+
+
+def test_send_slack_payload_returns_false_for_malformed_brief(monkeypatch):
+    requests = []
+
+    def fake_urlopen(request, timeout=None):
+        requests.append((request, timeout))
+        return None
+
+    monkeypatch.setenv("SLACK_WEBHOOK_URL", "https://hooks.slack.test/services/T000/B000/TEST")
+
+    assert send_slack_payload({"channel": "slack", "brief": "not-a-dict"}, opener=fake_urlopen) is False
+    assert requests == []

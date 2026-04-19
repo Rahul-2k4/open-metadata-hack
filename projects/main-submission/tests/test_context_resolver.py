@@ -1,6 +1,7 @@
 import os
 from unittest.mock import patch
 
+from incident_copilot.mcp_transport_client import MCPTransportClientError
 from incident_copilot.context_resolver import resolve_context
 
 
@@ -63,6 +64,29 @@ def test_mcp_mode_falls_back_to_http():
         with patch("incident_copilot.context_resolver._resolve_via_mcp", side_effect=RuntimeError("mcp unavailable")):
             with patch("incident_copilot.context_resolver._resolve_via_http", return_value=live_payload):
                 out = resolve_context(env, om_client_data={}, max_depth=2)
+    assert "OM_MCP_FALLBACK_TO_HTTP" in out["fallback_reason_codes"]
+    assert out["failed_test"]["name"] == "tc-1"
+
+
+def test_mcp_mode_falls_back_to_http_when_transport_client_errors():
+    env = {"incident_id": "inc-1", "entity_fqn": "svc.db.customer_profiles", "test_case_id": "tc-1"}
+    live_payload = {
+        "failed_test": {"name": "tc-1", "message": "mcp fallback", "testType": "tableColumnCountToEqual"},
+        "lineage": [],
+        "owners": {"asset_owner": "dre-oncall"},
+        "classifications": {},
+    }
+
+    class FakeTransportClient:
+        def fetch_incident_context(self, envelope, max_depth=2):
+            raise MCPTransportClientError("mcp transport failed")
+
+    with patch.dict(os.environ, {"USE_OM_MCP": "true"}, clear=False):
+        with patch("incident_copilot.context_resolver.MCPTransportClient.from_env", return_value=FakeTransportClient()):
+            with patch("incident_copilot.context_resolver._resolve_via_http", return_value=live_payload) as http_resolver:
+                out = resolve_context(env, om_client_data={}, max_depth=2)
+
+    http_resolver.assert_called_once_with(env, max_depth=2)
     assert "OM_MCP_FALLBACK_TO_HTTP" in out["fallback_reason_codes"]
     assert out["failed_test"]["name"] == "tc-1"
 
