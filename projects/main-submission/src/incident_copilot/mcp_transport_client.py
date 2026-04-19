@@ -66,6 +66,9 @@ class MCPTransportClient:
 
         result = payload.get("result")
         if isinstance(result, dict):
+            structured_content = result.get("structuredContent")
+            if isinstance(structured_content, dict):
+                return structured_content
             if "content" in result and isinstance(result["content"], list):
                 for item in result["content"]:
                     if isinstance(item, dict) and isinstance(item.get("json"), dict):

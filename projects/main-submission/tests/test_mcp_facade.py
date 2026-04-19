@@ -130,7 +130,7 @@ def test_triage_incident_returns_canonical_envelope_and_matches_pipeline_core_fi
     assert result["delivery"]["delivery"].primary_output == expected["delivery"]["delivery"].primary_output
 
 
-def test_notify_slack_returns_canonical_payload_hash():
+def test_notify_slack_returns_canonical_payload_hash(monkeypatch):
     brief = {
         "incident_id": "inc-1",
         "policy_state": "approval_required",
@@ -147,6 +147,9 @@ def test_notify_slack_returns_canonical_payload_hash():
         "policy_state": "approval_required",
         "what_is_impacted": {"evidence_refs": ["lineage_ref"], "text": "y"},
     }
+
+    monkeypatch.delenv("SLACK_WEBHOOK_URL", raising=False)
+    monkeypatch.delenv("SLACK_WEBHOOK", raising=False)
 
     result_a = notify_slack_tool(incident_id="inc-1", brief=brief)
     result_b = notify_slack_tool(incident_id="inc-1", brief=reordered)

@@ -18,8 +18,16 @@ def get_slack_webhook_url(env: dict | None = None) -> str | None:
     return None
 
 
-def _render_slack_message(payload: dict) -> dict:
-    brief = payload.get("brief") or {}
+def _render_slack_message(payload: dict) -> dict | None:
+    if not isinstance(payload, dict):
+        return None
+
+    brief = payload.get("brief")
+    if brief is None:
+        brief = {}
+    if not isinstance(brief, dict):
+        return None
+
     incident_id = payload.get("incident_id") or brief.get("incident_id") or "unknown"
 
     lines = [f"Incident {incident_id}"]
@@ -49,7 +57,11 @@ def send_slack_payload(
     if not url:
         return False
 
-    request_body = json.dumps(_render_slack_message(payload), sort_keys=True, separators=(",", ":"), default=str)
+    message = _render_slack_message(payload)
+    if not isinstance(message, dict):
+        return False
+
+    request_body = json.dumps(message, sort_keys=True, separators=(",", ":"), default=str)
     request = Request(
         url,
         data=request_body.encode("utf-8"),
