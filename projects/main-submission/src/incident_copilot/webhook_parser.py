@@ -11,7 +11,9 @@ from datetime import datetime, timezone
 from typing import Any
 
 
-_ENTITY_LINK_RE = re.compile(r"<#E::[^:]+::([^>]+)>")
+# OpenMetadata entityLink format: `<#E::<type>::<fqn>[::<subpart>::<name>[::<subpart>::<name>]]>`
+# We want the FQN, not any of the ::subpart:: suffixes that may trail it.
+_ENTITY_LINK_RE = re.compile(r"<#E::[^:]+::((?:(?!::).)+?)(?:::|>)")
 
 
 def _iso_from_millis(ms: Any) -> str:

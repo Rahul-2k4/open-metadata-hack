@@ -61,6 +61,22 @@ def test_derives_entity_fqn_from_nested_entity_link():
     assert event["entity_fqn"] == "svc.db.orders"
 
 
+def test_entity_link_with_column_subpart_stops_at_columns():
+    """Regression: OM test-case alerts include an entityLink like
+    `<#E::table::fqn::columns::name>`. Our parser must return just the table FQN,
+    not the full string with `::columns::name` appended.
+    """
+    payload = {
+        "entity": {
+            "id": "tc-3",
+            "entityLink": "<#E::table::copilot_source_pg.customer_analytics.raw.users_profile::columns::full_name>",
+            "testCaseResult": {"testCaseStatus": "Failed", "result": "x"},
+        }
+    }
+    event = parse_om_alert_payload(payload)
+    assert event["entity_fqn"] == "copilot_source_pg.customer_analytics.raw.users_profile"
+
+
 def test_severity_from_failed_status():
     payload = {
         "entity": {"id": "tc-3", "testCaseResult": {"testCaseStatus": "Failed", "result": "x"}}
