@@ -66,8 +66,9 @@ Updated as features land or issues are discovered.
   Fetches table columns from OM, generates rule-based DQ test suggestions (null, unique,
   regex for emails, between for numeric metrics) and Claude-powered suggestions when
   `OPENROUTER_API_KEY` is set.
-- **Remaining:** Tool suggests tests but doesn't write them back to OM. Creating test
-  cases via OM's REST API is a possible extension but not in scope.
+- **Remaining:** ✅ `create_tests_in_om(entity_fqn, suggestions)` MCP tool added.
+  POSTs test cases via `/v1/dataQuality/testCases`, resolves test definition IDs
+  from OM's catalog, and finds the entity's basic test suite automatically.
 
 ### [#26645](https://github.com/open-metadata/OpenMetadata/issues/26645) — Multi-MCP Agent Orchestrator (~50% covered)
 
@@ -96,7 +97,7 @@ Updated as features land or issues are discovered.
 |---|---|---|---|
 | #26659 | Human-readable RCA | ~85% | +15% (rca-summary, novel signal classification) |
 | #26658 | DQ Impact scoring | ~85% | unchanged |
-| #26660 | AI-Powered DQ Recommendations | ~70% | +40% (suggest_tests_for_table) |
+| #26660 | AI-Powered DQ Recommendations | ~90% | +20% (create_tests_in_om) |
 | #26645 | Multi-MCP Agent Orchestrator | ~50% | unchanged (GW out of scope) |
 | #26609 | New MCP Tools | ~60% | +3 new tools (list_recent_failures, get_table_info, suggest_tests) |
 | #26651 | Slack App for OpenMetadata | ~75% | +35% (slash command + daily digest) |
@@ -114,6 +115,7 @@ Net: **6 of 22** hackathon problem statements touched, **5 substantially** cover
 | `GET /rca-summary` aggregated dashboard | ✅ Done |
 | Optional bearer-token auth on `/webhooks/incidents` | ✅ Done (`WEBHOOK_SECRET`) |
 | `suggest_tests_for_table` MCP tool | ✅ Done |
+| `create_tests_in_om` MCP tool | ✅ Done |
 | `POST /slack/commands` slash command | ✅ Done |
 | `POST /slack/digest` daily digest | ✅ Done |
 | `list_recent_failures` + `get_table_info` MCP tools | ✅ Done |
@@ -136,7 +138,7 @@ Net: **6 of 22** hackathon problem statements touched, **5 substantially** cover
   - `POST /slack/digest` — post daily incident summary to Slack
   - `GET  /api` — endpoint listing JSON
 - MCP tools: `triage_incident`, `score_impact`, `get_rca`, `notify_slack`,
-  `suggest_tests_for_table`, `list_recent_failures`, `get_table_info`
+  `suggest_tests_for_table`, `list_recent_failures`, `get_table_info`, `create_tests_in_om`
 - SQLite persistence + retry queue + dead-letter queue
 - Background retry loop + OM event poller, managed by FastAPI lifespan
 - Slack Block Kit message with ack/approve/deny buttons; `/slack/actions` verifies HMAC
