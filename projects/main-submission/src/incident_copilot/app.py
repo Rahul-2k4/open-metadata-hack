@@ -304,6 +304,41 @@ def create_app(config: AppConfig | None = None, retry_interval_seconds: float = 
             return JSONResponse({"retried": 0, "error": "SLACK_WEBHOOK_URL not configured"}, status_code=400)
         return retry_pending_deliveries(store=store, queue=queue, slack_sender=sender)
 
+    @app.post("/slack/digest")
+    async def slack_digest():
+        """Post a daily summary of recent incidents to Slack."""
+        if not cfg.has_slack:
+            return JSONResponse({"status": "not_configured", "reason": "SLACK_WEBHOOK_URL not set"}, status_code=400)
+
+        summary = store.rca_summary(limit=200)
+        rows = store.list_recent(limit=10)
+        total = summary["total_incidents"]
+
+        lines = [f":bar_chart: *OpenMetadata Incident Copilot — Daily Digest*\n*{total} incidents* in the last batch\n"]
+        for bucket in summary["signal_types"][:5]:
+            sig = bucket["signal_type"].replace("_", " ").title()
+            lines.append(f"• {sig}: {bucket['count']} incidents ({bucket['approval_required']} requiring approval)")
+
+        if rows:
+            lines.append("\n*Most recent:*")
+            for row in rows[:5]:
+                iid = row["incident_id"]
+                pol = ":rotating_light:" if row["policy_state"] == "approval_required" else ":white_check_mark:"
+                lines.append(f"  {pol} `{iid}`")
+
+        text = "\n".join(lines)
+        blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
+
+        sender = build_slack_sender()
+        sent = False
+        if sender:
+            try:
+                sent = bool(sender({"text": text, "blocks": blocks}))
+            except Exception as exc:
+                log.warning("digest send error: %s", exc)
+
+        return {"status": "sent" if sent else "fallback", "total_incidents": total, "signal_types": len(summary["signal_types"]), "text": text}
+
     @app.get("/admin/dead-letter")
     def dead_letter_queue():
         return {"dead_letters": queue.dead_letters(limit=100)}
