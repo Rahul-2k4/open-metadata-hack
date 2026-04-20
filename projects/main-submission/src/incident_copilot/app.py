@@ -214,6 +214,10 @@ def create_app(config: AppConfig | None = None, retry_interval_seconds: float = 
 
         return render_slack_response(parsed["action"], parsed["user_name"], parsed["incident_id"])
 
+    @app.get("/rca-summary")
+    def rca_summary():
+        return store.rca_summary()
+
     @app.get("/admin/retry-queue")
     def retry_queue_snapshot():
         return {"pending": queue.pending(limit=1000)}

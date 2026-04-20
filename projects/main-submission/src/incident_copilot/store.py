@@ -86,6 +86,34 @@ class IncidentStore:
     def count(self) -> int:
         return int(self._connect().execute("SELECT COUNT(*) FROM incidents").fetchone()[0])
 
+    def rca_summary(self, limit: int = 500) -> dict:
+        """Return incidents bucketed by signal_type for the aggregated RCA dashboard."""
+        rows = self._connect().execute(
+            "SELECT brief_json, policy_state, created_at FROM incidents ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+
+        buckets: dict[str, dict] = {}
+        for row in rows:
+            brief = json.loads(row["brief_json"])
+            refs = (brief.get("what_failed") or {}).get("evidence_refs") or []
+            signal = next((r[4:] for r in refs if r.startswith("rca:")), "unknown")
+            bucket = buckets.setdefault(signal, {"signal_type": signal, "count": 0, "approval_required": 0, "recent_incidents": []})
+            bucket["count"] += 1
+            if row["policy_state"] == "approval_required":
+                bucket["approval_required"] += 1
+            if len(bucket["recent_incidents"]) < 5:
+                bucket["recent_incidents"].append({
+                    "incident_id": brief.get("incident_id"),
+                    "policy_state": row["policy_state"],
+                    "created_at": row["created_at"],
+                })
+
+        return {
+            "total_incidents": sum(b["count"] for b in buckets.values()),
+            "signal_types": sorted(buckets.values(), key=lambda b: b["count"], reverse=True),
+        }
+
     @staticmethod
     def _row_to_dict(row: sqlite3.Row) -> dict:
         d = dict(row)
