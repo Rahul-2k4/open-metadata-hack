@@ -139,7 +139,7 @@ half-demos.
 
 ## Verified working (as of latest commit)
 
-- **190 tests pass**
+- **Pytest suite is green**
 - Live FastAPI service:
   - `GET  /` — HTML dashboard with recent incidents + integration-status pills
   - `POST /webhooks/incidents` — ingest OM alert payloads
