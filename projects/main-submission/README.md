@@ -223,8 +223,10 @@ projects/main-submission/
 
 ## Deployment docs
 
+- `docs/PROBLEM_AND_SOLUTION.md` — **start here** — problem statement, goals, how the app solves each one
 - `docs/INTEGRATION_SETUP.md` — where to get OpenMetadata / Slack / OpenRouter credentials
 - `docs/OPENMETADATA_ALERT_SETUP.md` — step-by-step for pointing OM at the webhook
+- `docs/DEMO_WALKTHROUGH.md` — 60s / 3-min / 5-min demo scripts with copy-paste curls
 - `docs/TESTING.md` — 8 depth-ordered ways to test the product
 - `docs/KNOWN_GAPS.md` — deferred items + verified-working inventory
 - `docs/DEMO_SCRIPT.md` — 2-minute demo recording guide
