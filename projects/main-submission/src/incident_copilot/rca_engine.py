@@ -39,11 +39,28 @@ def infer_signal_type(failed_test: dict) -> str:
 
 def build_rca(failed_test: dict, entity_fqn: str, use_ai: bool = True) -> RCAResult:
     signal = infer_signal_type(failed_test)
-    cause_tree = SIGNAL_MAP[signal]
+    cause_tree = SIGNAL_MAP.get(signal)
     narrative = None
     source = "template"
 
-    if use_ai and is_available():
+    # When signal is "unknown" and AI is available, ask Claude to classify the failure
+    # into a cause tree rather than falling back to the generic "unclassified" bucket.
+    if signal == "unknown" and use_ai and is_available():
+        try:
+            classified = _claude_classify_signal(failed_test, entity_fqn)
+            if classified and classified.get("signal_type") and classified["signal_type"] != "unknown":
+                signal = classified["signal_type"]
+                cause_tree = classified.get("cause_tree") or SIGNAL_MAP.get(signal) or SIGNAL_MAP["unknown"]
+                narrative = classified.get("narrative")
+                if narrative:
+                    source = "claude"
+        except Exception:
+            pass
+
+    if cause_tree is None:
+        cause_tree = SIGNAL_MAP["unknown"]
+
+    if use_ai and is_available() and narrative is None:
         try:
             narrative = _claude_narrative(signal, cause_tree, failed_test, entity_fqn)
             if narrative.strip():
@@ -54,7 +71,7 @@ def build_rca(failed_test: dict, entity_fqn: str, use_ai: bool = True) -> RCARes
             pass
 
     if narrative is None:
-        narrative = TEMPLATE_NARRATIVES[signal]
+        narrative = TEMPLATE_NARRATIVES.get(signal, TEMPLATE_NARRATIVES["unknown"])
 
     return RCAResult(
         cause_tree=cause_tree,
@@ -62,6 +79,32 @@ def build_rca(failed_test: dict, entity_fqn: str, use_ai: bool = True) -> RCARes
         narrative_source=source,
         signal_type=signal,
     )
+
+
+def _claude_classify_signal(failed_test: dict, entity_fqn: str) -> dict | None:
+    """Ask Claude to classify a novel failure into a known or new signal bucket."""
+    client = get_client()
+    model = os.environ.get("OPENROUTER_MODEL", _DEFAULT_MODEL)
+    known_signals = ", ".join(k for k in SIGNAL_MAP if k != "unknown")
+    prompt = (
+        f"A data quality check failed on asset '{entity_fqn}'.\n"
+        f"Test message: {failed_test.get('message', 'unknown')}\n\n"
+        f"Known signal types: {known_signals}\n\n"
+        "Classify this failure. Return a JSON object with:\n"
+        '- "signal_type": closest known signal type, or a short snake_case name for a new one\n'
+        '- "cause_tree": list of 1-3 root cause strings (snake_case)\n'
+        '- "narrative": 1-2 sentences explaining what failed and why\n\n'
+        "Return ONLY valid JSON, no markdown."
+    )
+    resp = client.chat.completions.create(
+        model=model,
+        max_tokens=200,
+        timeout=3,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    import json
+    text = (resp.choices[0].message.content or "").strip()
+    return json.loads(text)
 
 
 def _claude_narrative(signal: str, cause_tree: list[str], failed_test: dict, entity_fqn: str) -> str:
