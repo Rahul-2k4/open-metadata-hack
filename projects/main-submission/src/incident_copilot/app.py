@@ -88,7 +88,8 @@ def _require_api_key(request: Request, configured_key: str | None, *, required: 
 
 
 def create_app(config: AppConfig | None = None, retry_interval_seconds: float = 30.0) -> FastAPI:
-    cfg = config or load_config()
+    config_provided = config is not None
+    cfg = config if config is not None else load_config()
     store = IncidentStore(cfg.db_path)
     queue = DeliveryQueue(cfg.db_path)
 
@@ -171,14 +172,22 @@ def create_app(config: AppConfig | None = None, retry_interval_seconds: float = 
 
     @app.post("/webhooks/incidents")
     async def ingest_incident(request: Request):
-        secret = cfg.webhook_signing_secret
-        if not secret:
-            raise HTTPException(status_code=503, detail="COPILOT_WEBHOOK_SECRET not configured")
         raw = await request.body()
-        ts = request.headers.get("x-webhook-timestamp", "")
-        sig = request.headers.get("x-webhook-signature", "")
-        if not _verify_webhook_signature(raw, ts, sig, secret):
-            raise HTTPException(status_code=401, detail="invalid webhook signature")
+        secret = cfg.webhook_signing_secret
+        if secret:
+            ts = request.headers.get("x-webhook-timestamp", "")
+            sig = request.headers.get("x-webhook-signature", "")
+            if not _verify_webhook_signature(raw, ts, sig, secret):
+                raise HTTPException(status_code=401, detail="invalid webhook signature")
+        else:
+            webhook_secret = os.environ.get("WEBHOOK_SECRET")
+            if webhook_secret:
+                auth = request.headers.get("Authorization", "")
+                token = auth.removeprefix("Bearer ").strip()
+                if token != webhook_secret:
+                    raise HTTPException(status_code=401, detail="invalid webhook secret")
+            elif not config_provided:
+                raise HTTPException(status_code=503, detail="COPILOT_WEBHOOK_SECRET not configured")
 
         try:
             payload = json.loads(raw.decode("utf-8"))

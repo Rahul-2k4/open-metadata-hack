@@ -5,21 +5,21 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class AppConfig:
-    host: str
-    port: int
-    db_path: str
-    default_channel: str
-    openmetadata_base_url: str | None
-    openmetadata_jwt_token: str | None
-    openmetadata_mcp_url: str | None
-    slack_webhook_url: str | None
-    webhook_signing_secret: str | None
-    api_key: str | None
-    approver_users: str | None
-    openrouter_api_key: str | None
-    use_om_mcp: bool
-    enable_poller: bool
-    poller_interval_seconds: float
+    host: str = "127.0.0.1"
+    port: int = 8080
+    db_path: str = "runtime/incidents.db"
+    default_channel: str = "#metadata-incidents"
+    openmetadata_base_url: str | None = None
+    openmetadata_jwt_token: str | None = None
+    openmetadata_mcp_url: str | None = None
+    slack_webhook_url: str | None = None
+    webhook_signing_secret: str | None = None
+    api_key: str | None = None
+    approver_users: str | None = None
+    openrouter_api_key: str | None = None
+    use_om_mcp: bool = False
+    enable_poller: bool = False
+    poller_interval_seconds: float = 60.0
 
     @property
     def has_openmetadata(self) -> bool:
